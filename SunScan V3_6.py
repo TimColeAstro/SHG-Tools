@@ -16,7 +16,7 @@
 # So, the SHG 700 slit ranges from 134% to 136% of the Sun's diameter.  If we want
 # a square scan, then we want a scan margin of about 35%.
 # Note: After much use, I find that produces excessively large .ser files. Perhaps
-# 25% would be more reasonable.
+# 20% would be more reasonable.
 #
 #
 # V3:	1)	Implemented limb detection based on Christian Bennich's script.
@@ -115,7 +115,7 @@ camera = SharpCap.SelectedCamera
 PIXEL_SIZE = 2.0 # QHY5III678M
 FOCAL_LENGTH = 560 # Askar 80ED
 # FOCAL_LENGTH = 700 # Askar 103APO
-SCAN_MARGIN = 0.25
+SCAN_MARGIN = 0.20
 RECENTER_RATE = 16.0
 OFFSET_RATE = 16.0
 SETTLING_TIME = 0.5
@@ -218,7 +218,6 @@ class FrameGrabber:
 #-------------------------------------------------------------------------------
 # Utility functions
 
-
 def start_image_capture():
 	camera.PrepareToCapture()
 	camera.RunCapture()
@@ -233,7 +232,7 @@ def setup_scan():
 		contributes 1 line to the final image, analogous to one pixel.
 		image_scale * frame_rate -> arc-sec/pixel  * "pixels"/sec -> arc-sec/sec
 		
-		Note: Re-run this function after changing the size of the ROI.
+		Note: Re-run this function after changing the ROI.
 	"""
 	global sun_diameter
 	global scan_length
@@ -257,43 +256,27 @@ def setup_scan():
 	offset_time = margin_length / (OFFSET_RATE * SIDEREAL_SPEED)
 		# time to move from limb to starting position
 	recenter_time = scan_length / (RECENTER_RATE * SIDEREAL_SPEED) / 2.0
-		# estimated time to move from scan end to mid-disk, including a fudge factor
-	limb_search_time = ((sun_diameter / 2.0) / (LIMB_SEARCH_RATE * SIDEREAL_SPEED)) * 1.15
+		# estimated time to move from scan end to mid-disk
+	limb_search_time = ((sun_diameter / 2.0) / (LIMB_SEARCH_RATE * SIDEREAL_SPEED)) + (SETTLING_TIME * 2.0)
 	print("")
 	print("Current scan parameters")
 	print("=======================")
-	print("")
 	print("Sun's diameter: {:.1f} arc-sec".format(sun_diameter))
 	print("Scan margin: ", int(SCAN_MARGIN * 100), "%")
-	print("Scan length: {:.2f} arc-sec".format(scan_length))
-	print("Limb search rate: {:.1f} x sidereal -> {:.2f} arc-sec/sec".format(LIMB_SEARCH_RATE, (LIMB_SEARCH_RATE * SIDEREAL_SPEED)))
-	print("Offset rate: {:.1f} x sidereal -> {:.2f} arc-sec/sec".format(OFFSET_RATE, (OFFSET_RATE * SIDEREAL_SPEED)))
-	print("Recenter rate: {:.1f} x sidereal -> {:.2f} arc-sec/sec".format(RECENTER_RATE, (RECENTER_RATE * SIDEREAL_SPEED)))
+	print("Scan length: {:.1f} arc-sec".format(scan_length))
+	print("Image scale: {:.2f} arc-sec/pixel".format(image_scale))
 	print("")	
 	print("Reported frame rate: {:.2f} FPS".format(frame_rate))
-	print("Maximum exposure: {:.2f} ms".format((1000.0 / frame_rate)))
-	print("Image scale: {:.3f} arc-sec/pixel".format(image_scale))
-	print("Calculated scan rate: {:.2f} x sidereal -> {:.2f} arc-sec/sec".format(scan_rate_actual, scan_speed_actual))
+	print("Calculated scan rate: {:.1f} x sidereal -> {:.1f} arc-sec/sec".format(scan_rate_actual, scan_speed_actual))
 	print("")
 	print("Scan time: {:.1f} sec".format(scan_time))
-	print("Limb search time: {:.1f} sec (estimated)".format(limb_search_time))
-	print("Recenter time: {:.1f} sec".format(recenter_time))
-	print("Offset time: {:.1f} sec".format(offset_time))
-	print("Inter-scan delay: {:.1f} sec".format(SCAN_DELAY))
-	print("Cycle time: {:.1f} sec (estimated)".format((scan_time + limb_search_time + recenter_time + offset_time + SCAN_DELAY)))
-	print("")
+	print("Cycle time: {:.1f} sec (estimated)".format((scan_time + limb_search_time + recenter_time + offset_time)))
 	print("=======================")
-	print("")
 	mount.TrackingRate = mount.TrackingRate.Solar
 	time.sleep(SETTLING_TIME)
 	if not mount.Tracking:
 		print("Mount not responding")
-	else:
-		print("Tracking at solar rate")
-		print("")
-		print("=======================")
-		print("")
-
+	
 def sun_on_slit():
 	"""	Use the frame's standard deviation to see if the Sun's disk is on the the slit
 		Requirements before calling:
@@ -342,7 +325,7 @@ def find_limb():
 	background_level = FrameStatistics.standard_deviation
 	limb_threshold = max((background_level * LIMB_SIGMA_MULTIPLE), LIMB_SIGMA)
 
-	# Move Westward until we see sigma exceed the limb threshold
+	# Move Westward until we see standard deviation exceed the limb threshold
 	mount.MoveAxis(RA_AXIS, (WESTWARD * LIMB_SEARCH_RATE))
 	limb_found = False
 	phase_start = time.time()
@@ -367,7 +350,6 @@ def offset_sun():
 	time.sleep(offset_time)
 	mount.Stop()
 	print("At scan start position")
-	time.sleep(SETTLING_TIME)
 	
 def recenter_disk():
 	""" Move mount from scan start position to solar disk center """
@@ -376,7 +358,6 @@ def recenter_disk():
 	time.sleep(recenter_time)
 	mount.Stop()
 	print("At disk center")
-	time.sleep(SETTLING_TIME)
 
 def scan_solar_disk():
 	""" Scan the disk from East-side offset to West-side offset """
@@ -384,8 +365,8 @@ def scan_solar_disk():
 	start_image_capture()
 	mount.MoveAxis(RA_AXIS, (WESTWARD * scan_rate_actual))
 	time.sleep(scan_time)
-	mount.Stop()
 	camera.StopCapture()
+	mount.Stop()
 	FrameStatistics.enable_stats()
 
 def run_single_scan(scan_number = 1, SCAN_COUNT = 1, return_to_start = True):
@@ -424,13 +405,6 @@ def run_scan_sequence(return_to_start = True):
 			time.sleep(SCAN_DELAY)
 	print("Scan sequence complete")
 	
-def scan_from_limb(return_to_start = True):
-	"""	The user is responsible for ensuring that the slit is on the Sun's limb,
-		either by running "find_limb" or by estimating the limb position by eye.
-	"""	
-	offset_sun()
-	run_single_scan(return_to_start)
-	
 #-------------------------------------------------------------------------------
 #
 # Shortcuts for various functions
@@ -446,10 +420,6 @@ def scan_from_limb(return_to_start = True):
 def fl():
 	""" Shortcut for "find_limb" function. """
 	find_limb()
-
-def sl():
-	""" Shortcut for "scan_from_limb" function. """
-	scan_from_limb()
 
 def rs():
 	""" Shortcut for "run_scan_sequence" function, returning to start. """

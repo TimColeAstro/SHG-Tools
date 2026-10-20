@@ -6,3 +6,8 @@ their work available for other SHG users.
 While I find these scripts useful, perhaps you won't. In any case, I'm posting them here for your edification or amusement.
 
 Attribution and background information are included in the source files.
+
+Notes:
+1) You'll have to change the various paths to match your own setup.
+2) Use the SunScan script with the highest version number. I am not good with Git, and I don't know how to delete
+or move outdated files. I'm also disinclined to spend much time with Git, so I'm not bothering to figure it out. 
